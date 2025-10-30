@@ -1,0 +1,42 @@
+{
+  "mathematics": {
+    "algebra": [
+      {
+        "name": "Quadratic Formula",
+        "formula": "x = (-b ± √(b²-4ac)) / 2a",
+        "description": "Used to solve quadratic equations of the form ax² + bx + c = 0"
+      },
+      {
+        "name": "Pythagorean Theorem",
+        "formula": "a² + b² = c²",
+        "description": "Relates the sides of a right triangle"
+      }
+    ],
+    "geometry": [
+      {
+        "name": "Circle Area",
+        "formula": "A = πr²",
+        "description": "Calculates the area of a circle given radius r"
+      },
+      {
+        "name": "Circle Circumference",
+        "formula": "C = 2πr",
+        "description": "Calculates the circumference of a circle given radius r"
+      }
+    ]
+  },
+  "physics": {
+    "mechanics": [
+      {
+        "name": "Newton's Second Law",
+        "formula": "F = ma",
+        "description": "Force equals mass times acceleration"
+      },
+      {
+        "name": "Kinetic Energy",
+        "formula": "E = ½mv²",
+        "description": "Energy of motion"
+      }
+    ]
+  }
+}

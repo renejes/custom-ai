@@ -1,0 +1,131 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# User data and projects
+projects/
+*.db
+*.sqlite
+*.sqlite3
+
+# Settings (user-specific)
+settings.json
+
+# Model files and downloads (large files from Unsloth/HuggingFace)
+models/
+checkpoints/
+*.bin
+*.safetensors
+*.gguf
+*.pth
+*.pt
+*.ckpt
+
+# Hugging Face cache (can be gigabytes)
+.cache/
+huggingface/
+transformers_cache/
+
+# Unsloth specific
+unsloth_cache/
+*.model
+*.vocab
+
+# Training outputs
+outputs/
+runs/
+wandb/
+mlruns/
+
+# Exports
+exports/
+
+# Test documents (keep structure but ignore actual files)
+test_documents/*.pdf
+test_documents/*.docx
+test_documents/*.xlsx
+
+# Data files
+*.jsonl
+
+# Gradio temp files
+gradio_cached_examples/
+flagged/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# PyInstaller (for future distribution)
+*.spec
