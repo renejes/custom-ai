@@ -116,6 +116,45 @@ Respond ONLY with JSON in this format:
         except Exception as e:
             return False, f"L Error: {str(e)}"
 
+    async def generate_single_sample(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.7
+    ) -> Tuple[bool, str, str]:
+        """
+        Generate a single sample (for custom Q&A generation).
+
+        Args:
+            model: Model name
+            system_prompt: System prompt
+            user_prompt: User prompt (already formatted with chunk content)
+            temperature: Sampling temperature
+
+        Returns:
+            Tuple of (success, response_text, error_message)
+        """
+        try:
+            if self.provider == "openrouter":
+                result = await self._generate_openrouter_raw(
+                    model, system_prompt, user_prompt, temperature
+                )
+            elif self.provider == "ollama":
+                result = await self._generate_ollama_raw(
+                    model, system_prompt, user_prompt, temperature
+                )
+            else:
+                return False, "", f"Unknown provider: {self.provider}"
+
+            if result:
+                return True, result, ""
+            else:
+                return False, "", "No response generated"
+
+        except Exception as e:
+            return False, "", str(e)
+
     async def generate_samples(
         self,
         model: str,
@@ -187,14 +226,14 @@ Respond ONLY with JSON in this format:
 
         return True, samples, ""
 
-    async def _generate_openrouter(
+    async def _generate_openrouter_raw(
         self,
         model: str,
         system_prompt: str,
         user_prompt: str,
         temperature: float
-    ) -> Optional[Dict]:
-        """Generate one sample via OpenRouter."""
+    ) -> Optional[str]:
+        """Generate raw text via OpenRouter."""
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -218,22 +257,33 @@ Respond ONLY with JSON in this format:
 
                     data = await resp.json()
                     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-                    # Parse JSON response
-                    return self._parse_response(content)
+                    return content
 
         except Exception as e:
             print(f"OpenRouter error: {e}")
             return None
 
-    async def _generate_ollama(
+    async def _generate_openrouter(
         self,
         model: str,
         system_prompt: str,
         user_prompt: str,
         temperature: float
     ) -> Optional[Dict]:
-        """Generate one sample via Ollama."""
+        """Generate one sample via OpenRouter."""
+        content = await self._generate_openrouter_raw(model, system_prompt, user_prompt, temperature)
+        if content:
+            return self._parse_response(content)
+        return None
+
+    async def _generate_ollama_raw(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float
+    ) -> Optional[str]:
+        """Generate raw text via Ollama."""
         url = f"{self.base_url}/api/generate"
 
         # Combine prompts for Ollama
@@ -256,13 +306,24 @@ Respond ONLY with JSON in this format:
 
                     data = await resp.json()
                     content = data.get("response", "")
-
-                    # Parse JSON response
-                    return self._parse_response(content)
+                    return content
 
         except Exception as e:
             print(f"Ollama error: {e}")
             return None
+
+    async def _generate_ollama(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float
+    ) -> Optional[Dict]:
+        """Generate one sample via Ollama."""
+        content = await self._generate_ollama_raw(model, system_prompt, user_prompt, temperature)
+        if content:
+            return self._parse_response(content)
+        return None
 
     @staticmethod
     def _parse_response(content: str) -> Optional[Dict]:

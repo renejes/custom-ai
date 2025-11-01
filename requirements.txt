@@ -1,18 +1,30 @@
 # UI Framework
 gradio>=4.0.0
 
-# Training & Model Libraries
-unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
-# Note: unsloth automatically installs transformers, peft, datasets, trl, bitsandbytes
-
-# PyTorch (auto-detects CUDA/MPS/CPU)
+# PyTorch (MPS support for Apple Silicon)
 torch>=2.1.0
 torchvision>=0.16.0
 torchaudio>=2.1.0
 
+# HuggingFace Core Libraries
+transformers>=4.40.0
+datasets>=2.18.0
+peft>=0.10.0
+trl>=0.8.0
+accelerate>=0.28.0
+
+# Unsloth (basic installation without colab-new extra for macOS)
+unsloth @ git+https://github.com/unslothai/unsloth.git
+
+# bitsandbytes (use compatible version for macOS)
+bitsandbytes>=0.42.0
+
 # Text Processing & RAG
 langchain>=0.1.0
 langchain-text-splitters>=0.0.1
+langchain-experimental>=0.0.50  # For SemanticChunker
+langchain-huggingface>=0.0.1  # For HuggingFace embeddings integration
+sentence-transformers>=2.3.0  # For semantic chunking embeddings
 pypdf>=3.17.0
 python-docx>=1.1.0
 beautifulsoup4>=4.12.0  # HTML parsing

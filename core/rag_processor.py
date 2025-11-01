@@ -362,25 +362,63 @@ class DocumentLoader:
 
 
 class RAGProcessor:
-    """Main RAG processing class."""
+    """Main RAG processing class with semantic chunking support."""
 
-    def __init__(self, db_path: str, chunk_size: int = 512, chunk_overlap: int = 50):
+    def __init__(
+        self,
+        db_path: str,
+        chunk_size: int = 512,
+        chunk_overlap: int = 50,
+        use_semantic_chunking: bool = True,
+        embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    ):
         """
         Initialize RAG processor.
 
         Args:
             db_path: Path to SQLite database
-            chunk_size: Number of characters per chunk
+            chunk_size: Max characters per chunk (used as fallback for semantic chunking)
             chunk_overlap: Number of characters overlap between chunks
+            use_semantic_chunking: If True, use semantic chunking instead of fixed size
+            embedding_model: Model for semantic chunking embeddings
         """
         self.db_path = db_path
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.use_semantic_chunking = use_semantic_chunking
+        self.embedding_model = embedding_model
 
-        # Initialize text splitter
+        # Initialize semantic chunker if enabled
+        if use_semantic_chunking:
+            try:
+                from langchain_experimental.text_splitter import SemanticChunker
+                from langchain_huggingface import HuggingFaceEmbeddings
+
+                # Initialize embeddings for semantic chunking
+                embeddings = HuggingFaceEmbeddings(
+                    model_name=embedding_model,
+                    model_kwargs={'device': 'cpu'},  # Use CPU for Mac compatibility
+                    encode_kwargs={'normalize_embeddings': True}
+                )
+
+                # Create semantic chunker
+                self.text_splitter = SemanticChunker(
+                    embeddings=embeddings,
+                    breakpoint_threshold_type="percentile",  # Use percentile-based breakpoints
+                    breakpoint_threshold_amount=50,  # Split when similarity drops below 50th percentile
+                )
+            except ImportError:
+                print("Warning: langchain-experimental not installed. Falling back to fixed-size chunking.")
+                self.use_semantic_chunking = False
+                self._init_fixed_chunker()
+        else:
+            self._init_fixed_chunker()
+
+    def _init_fixed_chunker(self):
+        """Initialize fixed-size text splitter as fallback."""
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""]
         )
@@ -660,6 +698,63 @@ class RAGProcessor:
 
         except Exception as e:
             return False, f"Error exporting to JSONL: {e}"
+
+    def merge_databases(self, source_db_paths: List[str], target_db_path: str) -> Tuple[bool, str, int]:
+        """
+        Merge multiple databases into a target database.
+
+        Args:
+            source_db_paths: List of source database paths
+            target_db_path: Path for merged database
+
+        Returns:
+            Tuple of (success, message, total_chunks_merged)
+        """
+        if not source_db_paths:
+            return False, "No source databases provided", 0
+
+        total_chunks = 0
+        merged_docs = set()
+
+        try:
+            # Create target database
+            target_db = RAGDatabase(target_db_path)
+
+            for source_path in source_db_paths:
+                if not os.path.exists(source_path):
+                    continue
+
+                # Connect to source
+                source_conn = sqlite3.connect(source_path)
+                source_cursor = source_conn.cursor()
+
+                # Get all chunks
+                source_cursor.execute("SELECT filename, chunk_index, chunk_text, metadata FROM documents")
+                rows = source_cursor.fetchall()
+                source_conn.close()
+
+                # Insert into target
+                for filename, chunk_index, chunk_text, metadata_str in rows:
+                    # Skip duplicates
+                    if filename in merged_docs:
+                        continue
+
+                    try:
+                        metadata = json.loads(metadata_str) if metadata_str else {}
+                    except:
+                        metadata = {}
+
+                    chunk = DocumentChunk(filename, chunk_index, chunk_text, metadata)
+                    target_db.insert_chunks([chunk])
+                    total_chunks += 1
+
+                merged_docs.add(filename)
+
+            target_db.close()
+            return True, f"Successfully merged {len(merged_docs)} documents ({total_chunks} chunks)", total_chunks
+
+        except Exception as e:
+            return False, f"Error merging databases: {e}", 0
 
 
 if __name__ == "__main__":

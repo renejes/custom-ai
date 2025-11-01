@@ -28,7 +28,7 @@ def create_training_tab(project_manager: ProjectManager):
     exporter_instance = None
     config = get_global_config()
 
-    def get_trainer() -> Tuple[bool, ModelTrainer, str]:
+    def get_trainer() -> Tuple[bool, ModelTrainer | None, str]:
         """Get or create trainer instance."""
         project = project_manager.get_current_project()
         if not project:
@@ -37,7 +37,7 @@ def create_training_tab(project_manager: ProjectManager):
         trainer = ModelTrainer(project.project_path)
         return True, trainer, ""
 
-    def get_exporter() -> Tuple[bool, ModelExporter, str]:
+    def get_exporter() -> Tuple[bool, ModelExporter | None, str]:
         """Get or create exporter instance."""
         project = project_manager.get_current_project()
         if not project:
@@ -47,57 +47,71 @@ def create_training_tab(project_manager: ProjectManager):
         return True, exporter, ""
 
     def check_prerequisites() -> str:
-        """Check if all prerequisites are met for training."""
+        """Check if all prerequisites are met for SFT training."""
         project = project_manager.get_current_project()
 
         if not project:
-            return "L No project selected. Please create or select a project first."
+            return "Error: No project selected. Please create or select a project first."
 
         issues = []
 
-        # Check base model
-        base_model = project.config.get("base_model")
-        if not base_model or base_model == "Not set":
-            issues.append("Base model not selected (Tab 2)")
+        # Check CPT model from Tab 2
+        cpt_model_path = project.cpt_model_path
+        if not cpt_model_path.exists() or not list(cpt_model_path.glob("*.safetensors")):
+            issues.append("CPT model not found (Tab 2) - Must complete CPT training first")
 
-        # Check SFT data
+        # Check SFT data from Tab 3
         sft_data_path = project.get_sft_data_path()
         if not sft_data_path.exists():
             issues.append("SFT training data not generated (Tab 3)")
         else:
             # Count samples
-            with open(sft_data_path, 'r') as f:
-                num_samples = sum(1 for line in f if line.strip())
-            if num_samples == 0:
-                issues.append("SFT data file is empty")
+            try:
+                with open(sft_data_path, 'r') as f:
+                    num_samples = sum(1 for line in f if line.strip())
+                if num_samples == 0:
+                    issues.append("SFT data file is empty")
+            except Exception as e:
+                issues.append(f"Error reading SFT data: {str(e)}")
+                num_samples = 0
 
         if issues:
-            return "L Prerequisites not met:\n" + "\n".join(f"" {issue}" for issue in issues)
+            return "Prerequisites not met:\n" + "\n".join(f"- {issue}" for issue in issues)
         else:
-            return f" Ready to train!\n" Base Model: {base_model}\n" Training Samples: {num_samples}"
+            return f"""Ready for SFT Training!
+
+CPT Model: Available (from Tab 2)
+SFT Q&A Pairs: {num_samples} (from Tab 3)
+
+This training will teach the CPT model HOW to answer questions."""
 
     def load_model_for_training(use_4bit: bool, gradient_checkpointing: bool, lora_rank: int) -> str:
-        """Load model and prepare for training."""
+        """Load CPT model from Tab 2 and prepare for SFT training."""
         try:
             success, trainer, msg = get_trainer()
             if not success:
-                return f"L {msg}"
+                return f"Error: {msg}"
 
             project = project_manager.get_current_project()
-            base_model = project.config.get("base_model")
 
-            # Load model
+            # Load CPT model from Tab 2 (not base model!)
+            cpt_model_path = project.cpt_model_path
+
+            if not cpt_model_path.exists():
+                return "Error: CPT model not found. Please complete CPT training in Tab 2 first."
+
+            # Load CPT model (already has domain knowledge)
             success, msg = trainer.load_model(
-                model_id=base_model,
+                model_id=str(cpt_model_path),  # Load from local path, not HuggingFace
                 max_seq_length=2048,
                 dtype=None,
                 load_in_4bit=use_4bit
             )
 
             if not success:
-                return msg
+                return f"Error loading CPT model: {msg}"
 
-            # Add LoRA adapters
+            # Add LoRA adapters for SFT (different from CPT LoRA)
             success, msg = trainer.prepare_model_for_training(
                 lora_rank=int(lora_rank),
                 lora_alpha=int(lora_rank),
@@ -106,12 +120,17 @@ def create_training_tab(project_manager: ProjectManager):
             )
 
             if not success:
-                return msg
+                return f"Error preparing for SFT: {msg}"
 
-            return f"{msg}\n\nModel loaded and ready for training!"
+            return f"""CPT Model loaded successfully!
+
+{msg}
+
+Model has domain knowledge from CPT.
+Ready for SFT training to learn response behavior."""
 
         except Exception as e:
-            return f"L Failed to load model: {str(e)}"
+            return f"Error: Failed to load CPT model: {str(e)}"
 
     def start_training(
         learning_rate: float,
@@ -259,24 +278,30 @@ def create_training_tab(project_manager: ProjectManager):
         # Count checkpoints
         if checkpoints_path.exists():
             checkpoints = [d for d in checkpoints_path.iterdir() if d.is_dir() and d.name.startswith("checkpoint-")]
-            status_lines.append(f"=� Checkpoints: {len(checkpoints)}")
+            status_lines.append(f" Checkpoints: {len(checkpoints)}")
         else:
-            status_lines.append("=� Checkpoints: 0")
+            status_lines.append(" Checkpoints: 0")
 
         # Check exports
         exports_path = project.project_path / "exports"
         if exports_path.exists():
             gguf_files = list(exports_path.glob("*.gguf"))
-            status_lines.append(f"=� Exports: {len(gguf_files)} GGUF files")
+            status_lines.append(f" Exports: {len(gguf_files)} GGUF files")
 
         return "\n".join(status_lines)
 
     # Build UI
     with gr.Column():
         gr.Markdown("""
-        ## Model Training
+        ## Phase 4: SFT Training (Supervised Fine-Tuning)
 
-        Configure training parameters and start fine-tuning your model.
+        Fine-tune the CPT model from Tab 2 using Q&A pairs from Tab 3.
+
+        **What happens here:**
+        1. Load CPT-trained model from Tab 2
+        2. Load SFT Q&A data (JSONL) from Tab 3
+        3. Fine-tune with LoRA to teach the model HOW to respond
+        4. Export final model for inference
         """)
 
         # Prerequisites check
@@ -294,7 +319,13 @@ def create_training_tab(project_manager: ProjectManager):
         # Training parameters
         training_defaults = config.get_training_defaults()
 
-        with gr.Accordion("Training Parameters", open=True):
+        with gr.Accordion("SFT Training Parameters", open=True):
+            gr.Markdown("""
+            **SFT-specific recommendations:**
+            - Lower learning rate than CPT (2e-4 to 3e-4)
+            - Fewer epochs (1-3) to avoid overfitting
+            - Smaller LoRA rank (8-16) for response behavior
+            """)
             with gr.Row():
                 learning_rate = gr.Slider(
                     label="Learning Rate",

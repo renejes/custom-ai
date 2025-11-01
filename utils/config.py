@@ -5,7 +5,7 @@ Handles persistent settings across application sessions.
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 
 class GlobalConfig:
@@ -40,6 +40,14 @@ class GlobalConfig:
         # Export Defaults
         "default_export_format": "GGUF",
         "default_quantization": "Q4_K_M",
+
+        # Multi-Database Configuration
+        "rag_databases": {},  # {db_name: db_path}
+        "active_rag_database": "wissensbasis",  # Default database name
+
+        # Local Model Management
+        "local_models_dir": "models",  # Directory containing local models
+        "available_local_models": [],  # List of detected local model folders
     }
 
     def __init__(self, config_path: Optional[Path] = None):
@@ -68,7 +76,7 @@ class GlobalConfig:
                 settings.update(loaded_settings)
                 return settings
             except Exception as e:
-                print(f"  Failed to load settings: {e}")
+                print(f"Warning: Failed to load settings: {e}")
                 return self.DEFAULT_SETTINGS.copy()
         else:
             return self.DEFAULT_SETTINGS.copy()
@@ -85,7 +93,7 @@ class GlobalConfig:
                 json.dump(self.settings, f, indent=2)
             return True
         except Exception as e:
-            print(f"L Failed to save settings: {e}")
+            print(f"Error: Failed to save settings: {e}")
             return False
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -218,6 +226,142 @@ class GlobalConfig:
             Complete settings dictionary
         """
         return self.settings.copy()
+
+    # Multi-Database Management
+    def get_rag_databases(self) -> Dict[str, str]:
+        """
+        Get all RAG databases.
+
+        Returns:
+            Dict mapping database names to paths
+        """
+        return self.settings.get("rag_databases", {})
+
+    def add_rag_database(self, name: str, path: str) -> bool:
+        """
+        Add a new RAG database.
+
+        Args:
+            name: Database name
+            path: Database file path
+
+        Returns:
+            Success status
+        """
+        databases = self.get_rag_databases()
+        if name in databases:
+            return False
+        databases[name] = path
+        self.settings["rag_databases"] = databases
+        return True
+
+    def remove_rag_database(self, name: str) -> bool:
+        """
+        Remove a RAG database.
+
+        Args:
+            name: Database name
+
+        Returns:
+            Success status
+        """
+        databases = self.get_rag_databases()
+        if name not in databases:
+            return False
+        del databases[name]
+        self.settings["rag_databases"] = databases
+        return True
+
+    def get_active_rag_database(self) -> str:
+        """
+        Get active RAG database name.
+
+        Returns:
+            Active database name
+        """
+        return self.settings.get("active_rag_database", "wissensbasis")
+
+    def set_active_rag_database(self, name: str) -> bool:
+        """
+        Set active RAG database.
+
+        Args:
+            name: Database name
+
+        Returns:
+            Success status
+        """
+        databases = self.get_rag_databases()
+        if name not in databases and name != "wissensbasis":
+            return False
+        self.settings["active_rag_database"] = name
+        return True
+
+    # Local Model Management
+    def get_local_models_dir(self) -> str:
+        """
+        Get local models directory.
+
+        Returns:
+            Models directory path
+        """
+        return self.settings.get("local_models_dir", "models")
+
+    def set_local_models_dir(self, path: str) -> None:
+        """
+        Set local models directory.
+
+        Args:
+            path: Models directory path
+        """
+        self.settings["local_models_dir"] = path
+
+    def get_available_local_models(self) -> List[str]:
+        """
+        Get list of available local models.
+
+        Returns:
+            List of model folder names
+        """
+        return self.settings.get("available_local_models", [])
+
+    def set_available_local_models(self, models: List[str]) -> None:
+        """
+        Set list of available local models.
+
+        Args:
+            models: List of model folder names
+        """
+        self.settings["available_local_models"] = models
+
+    def scan_local_models(self) -> List[str]:
+        """
+        Scan local models directory and update available models list.
+
+        Returns:
+            List of detected model folders
+        """
+        from pathlib import Path
+
+        models_dir = Path(self.get_local_models_dir())
+        if not models_dir.exists():
+            models_dir.mkdir(parents=True, exist_ok=True)
+            return []
+
+        # Look for folders containing model files
+        models = []
+        for item in models_dir.iterdir():
+            if item.is_dir():
+                # Check if it contains typical model files
+                has_config = (item / "config.json").exists()
+                has_safetensors = any(item.glob("*.safetensors"))
+                has_bin = any(item.glob("*.bin"))
+
+                if has_config and (has_safetensors or has_bin):
+                    models.append(item.name)
+
+        self.set_available_local_models(models)
+        return models
 
 
 # Global instance (singleton pattern)

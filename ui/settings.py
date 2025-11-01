@@ -47,9 +47,9 @@ def create_settings_tab():
         config.set("ollama_base_url", ollama_url.strip())
 
         if config.save():
-            return " API settings saved successfully"
+            return "API settings saved successfully"
         else:
-            return "L Failed to save API settings"
+            return "Failed to save API settings"
 
     def save_prompt_settings(system_prompt: str, user_prompt: str) -> str:
         """Save prompt configuration."""
@@ -57,9 +57,9 @@ def create_settings_tab():
         config.set("sft_user_prompt_template", user_prompt)
 
         if config.save():
-            return " Prompt settings saved successfully"
+            return "Prompt settings saved successfully"
         else:
-            return "L Failed to save prompt settings"
+            return "Failed to save prompt settings"
 
     def reset_prompts() -> tuple:
         """Reset prompts to defaults."""
@@ -68,7 +68,7 @@ def create_settings_tab():
         return (
             defaults["system_prompt"],
             defaults["user_prompt_template"],
-            " Prompts reset to defaults"
+            "Prompts reset to defaults"
         )
 
     def save_training_defaults(lr: float, epochs: int, batch: int, rank: int, use_4bit: bool, grad_check: bool) -> str:
@@ -83,9 +83,9 @@ def create_settings_tab():
         )
 
         if config.save():
-            return " Training defaults saved successfully"
+            return "Training defaults saved successfully"
         else:
-            return "L Failed to save training defaults"
+            return "Failed to save training defaults"
 
     def reset_training_defaults() -> tuple:
         """Reset training defaults."""
@@ -98,7 +98,7 @@ def create_settings_tab():
             defaults["default_lora_rank"],
             defaults["default_use_4bit"],
             defaults["default_gradient_checkpointing"],
-            " Training defaults reset"
+            "Training defaults reset"
         )
 
     def save_export_defaults(format: str, quant: str) -> str:
@@ -107,9 +107,9 @@ def create_settings_tab():
         config.set("default_quantization", quant)
 
         if config.save():
-            return " Export defaults saved successfully"
+            return "Export defaults saved successfully"
         else:
-            return "L Failed to save export defaults"
+            return "Failed to save export defaults"
 
     def save_hardware_settings(force_cpu: bool, max_ram: int) -> str:
         """Save hardware override settings."""
@@ -117,32 +117,32 @@ def create_settings_tab():
         config.set("max_ram_mb", int(max_ram))
 
         if config.save():
-            return " Hardware settings saved successfully"
+            return "Hardware settings saved successfully"
         else:
-            return "L Failed to save hardware settings"
+            return "Failed to save hardware settings"
 
     def reset_all_settings() -> str:
         """Reset all settings to defaults."""
         config.reset_to_defaults()
         if config.save():
-            return " All settings reset to defaults! Reload the page to see changes."
+            return "All settings reset to defaults! Reload the page to see changes."
         else:
-            return "L Failed to reset settings"
+            return "Failed to reset settings"
 
     # Build UI
     with gr.Column():
         gr.Markdown("""
-        # ™ Settings
+        # Settings
 
         Configure global application settings. These apply to all projects.
         """)
 
         # API Configuration
-        with gr.Accordion("= API Configuration", open=True):
+        with gr.Accordion("API Configuration", open=True):
             gr.Markdown("""
             Configure API keys and endpoints for external services.
 
-            **OpenRouter API Key**: Get your key at [openrouter.ai](https://openrouter.ai/keys)
+            **OpenRouter API Key**: Get your key at [openrouter.ai](https://openrouter.ai/keys)  
             **Ollama URL**: Local Ollama server URL (default: http://localhost:11434)
             """)
 
@@ -170,11 +170,11 @@ def create_settings_tab():
             )
 
         # Prompt Templates
-        with gr.Accordion("=Ý SFT Prompt Templates", open=False):
+        with gr.Accordion("SFT Prompt Templates", open=False):
             gr.Markdown("""
             Customize the prompts used for SFT data generation.
 
-            **System Prompt**: Sets the AI's role and behavior
+            **System Prompt**: Sets the AI's role and behavior  
             **User Prompt Template**: Template for generating Q&A pairs (use `{topic}` placeholder)
             """)
 
@@ -210,9 +210,9 @@ def create_settings_tab():
             )
 
         # Training Defaults
-        with gr.Accordion("<¯ Training Defaults", open=False):
+        with gr.Accordion("Training Defaults", open=False):
             gr.Markdown("""
-            Set default values for training parameters.
+            Set default values for training parameters.  
             These will be pre-filled when you open the Training tab.
             """)
 
@@ -274,7 +274,7 @@ def create_settings_tab():
             )
 
         # Export Defaults
-        with gr.Accordion("=ä Export Defaults", open=False):
+        with gr.Accordion("Export Defaults", open=False):
             gr.Markdown("""
             Set default export format and quantization method.
             """)
@@ -301,9 +301,9 @@ def create_settings_tab():
             )
 
         # Hardware Override
-        with gr.Accordion("=» Hardware Override", open=False):
+        with gr.Accordion("Hardware Override", open=False):
             gr.Markdown("""
-            **  Advanced Settings**
+            **Advanced Settings**
 
             Force specific hardware configurations for testing or compatibility.
             """)
@@ -331,9 +331,9 @@ def create_settings_tab():
 
         # Reset All
         gr.Markdown("---")
-        with gr.Accordion("= Reset All Settings", open=False):
+        with gr.Accordion("Reset All Settings", open=False):
             gr.Markdown("""
-            **  Danger Zone**
+            **Danger Zone**
 
             This will reset ALL settings to factory defaults.
             """)
@@ -350,7 +350,7 @@ def create_settings_tab():
         gr.Markdown("---")
         gr.Markdown("**Current Settings Status**: Settings are loaded from `settings.json`")
 
-        load_btn = gr.Button("= Load Current Settings", variant="secondary")
+        load_btn = gr.Button("Load Current Settings", variant="secondary")
         load_btn.click(
             fn=load_current_settings,
             outputs=[

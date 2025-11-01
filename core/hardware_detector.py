@@ -45,29 +45,29 @@ class HardwareInfo:
     def get_summary(self) -> str:
         """Generate human-readable summary."""
         lines = [
-            f"=¥  Platform: {self.platform}",
-            f"™  CPU: {self.cpu_name} ({self.cpu_cores} cores)",
-            f"=¾ RAM: {self.ram_available_gb:.1f}GB / {self.ram_total_gb:.1f}GB available",
+            f"  Platform: {self.platform}",
+            f"  CPU: {self.cpu_name} ({self.cpu_cores} cores)",
+            f" RAM: {self.ram_available_gb:.1f}GB / {self.ram_total_gb:.1f}GB available",
         ]
 
         if self.device_type == "cuda":
-            lines.append(f"<® GPU: {self.device_name}")
-            lines.append(f"=Ê VRAM: {self.vram_available_gb:.1f}GB / {self.vram_total_gb:.1f}GB available")
+            lines.append(f"< GPU: {self.device_name}")
+            lines.append(f" VRAM: {self.vram_available_gb:.1f}GB / {self.vram_total_gb:.1f}GB available")
         elif self.device_type == "mps":
             lines.append(f"<N Apple Silicon: {self.device_name}")
-            lines.append(f"=Ê Unified Memory: {self.ram_total_gb:.1f}GB")
+            lines.append(f" Unified Memory: {self.ram_total_gb:.1f}GB")
         else:
-            lines.append("   No GPU detected - using CPU (training will be slow)")
+            lines.append("  No GPU detected - using CPU (training will be slow)")
 
         if self.warnings:
-            lines.append("\n   Warnings:")
+            lines.append("\n  Warnings:")
             for warning in self.warnings:
-                lines.append(f"  " {warning}")
+                lines.append(f"   {warning}")
 
         if self.recommendations:
-            lines.append("\n=¡ Recommendations:")
+            lines.append("\n Recommendations:")
             for rec in self.recommendations:
-                lines.append(f"  " {rec}")
+                lines.append(f"   {rec}")
 
         return "\n".join(lines)
 

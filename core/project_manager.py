@@ -14,15 +14,28 @@ from typing import Dict, List, Optional
 class Project:
     """Represents a training project."""
 
-    def __init__(self, name: str, base_path: str = "projects"):
+    def __init__(self, name: str, base_path: str = "projects", custom_location: Optional[str] = None):
         self.name = name
-        self.base_path = Path(base_path)
-        self.project_path = self.base_path / name
+
+        # Support custom project location
+        if custom_location:
+            self.project_path = Path(custom_location)
+        else:
+            self.base_path = Path(base_path)
+            self.project_path = self.base_path / name
+
         self.config_path = self.project_path / "config.json"
+
+        # Organized folder structure
         self.data_path = self.project_path / "data"
+        self.databases_path = self.data_path / "databases"  # All RAG databases
+
         self.models_path = self.project_path / "models"
-        self.checkpoints_path = self.models_path / "checkpoints"
-        self.final_models_path = self.models_path / "final"
+        self.cpt_model_path = self.models_path / "cpt_model"  # CPT trained model
+        self.sft_model_path = self.models_path / "sft_model"  # SFT trained model
+        self.checkpoints_path = self.models_path / "checkpoints"  # Training checkpoints
+        self.final_models_path = self.models_path / "final"  # Final exported models
+
         self.logs_path = self.project_path / "logs"
 
         self.config: Dict = {}
@@ -44,12 +57,21 @@ class Project:
         if self.exists():
             return False
 
-        # Create directory structure
+        # Create organized directory structure
         self.project_path.mkdir(parents=True, exist_ok=True)
+
+        # Data folders
         self.data_path.mkdir(exist_ok=True)
+        self.databases_path.mkdir(exist_ok=True)
+
+        # Model folders
         self.models_path.mkdir(exist_ok=True)
+        self.cpt_model_path.mkdir(exist_ok=True)
+        self.sft_model_path.mkdir(exist_ok=True)
         self.checkpoints_path.mkdir(exist_ok=True)
         self.final_models_path.mkdir(exist_ok=True)
+
+        # Logs folder
         self.logs_path.mkdir(exist_ok=True)
 
         # Create default config
@@ -146,8 +168,8 @@ class Project:
         return True
 
     def get_rag_db_path(self) -> Path:
-        """Get path to RAG database."""
-        return self.data_path / "rag_export.db"
+        """Get path to default RAG database."""
+        return self.databases_path / "wissensbasis.db"
 
     def get_sft_data_path(self) -> Path:
         """Get path to SFT training data."""

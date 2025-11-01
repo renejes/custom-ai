@@ -24,12 +24,13 @@ MANIFEST
 
 # Virtual Environment
 venv/
+venv311/
 ENV/
 env/
 .venv
 
 # IDEs
-.vscode/
+# .vscode/ is now tracked for shared settings
 .idea/
 *.swp
 *.swo

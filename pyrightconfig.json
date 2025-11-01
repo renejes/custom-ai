@@ -1,0 +1,31 @@
+{
+    "include": [
+        "app.py",
+        "core",
+        "ui",
+        "utils"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "venv",
+        "venv311",
+        "venv_old",
+        ".git"
+    ],
+    "venvPath": ".",
+    "venv": "venv311",
+    "pythonVersion": "3.11",
+    "typeCheckingMode": "basic",
+    "reportMissingImports": "error",
+    "reportMissingTypeStubs": false,
+    "reportUnusedImport": "information",
+    "reportUnusedVariable": "information",
+    "reportGeneralTypeIssues": "warning",
+    "reportOptionalMemberAccess": "warning",
+    "reportOptionalCall": "warning",
+    "reportArgumentType": "warning",
+    "reportCallIssue": "warning",
+    "stubPath": "",
+    "useLibraryCodeForTypes": true
+}

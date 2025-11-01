@@ -1,32 +1,28 @@
 """
-Model training module using Unsloth.
-Handles fine-tuning with LoRA/QLoRA and checkpoint management.
+Model training module with Apple Silicon (MPS) support.
+Handles fine-tuning with LoRA/PEFT and checkpoint management.
 """
+
+from __future__ import annotations
 
 import json
 import torch
 from pathlib import Path
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict, Callable, Tuple, List
 from datetime import datetime
 from datasets import Dataset
 
 
 class ModelTrainer:
-    """Handles model training with Unsloth."""
+    """Handles model training with transformers + PEFT."""
 
     def __init__(self, project_path: Path):
-        """
-        Initialize trainer.
-
-        Args:
-            project_path: Path to project directory
-        """
+        """Initialize trainer."""
         self.project_path = Path(project_path)
         self.checkpoints_path = self.project_path / "models" / "checkpoints"
         self.final_model_path = self.project_path / "models" / "final"
         self.logs_path = self.project_path / "logs"
 
-        # Ensure directories exist
         self.checkpoints_path.mkdir(parents=True, exist_ok=True)
         self.final_model_path.mkdir(parents=True, exist_ok=True)
         self.logs_path.mkdir(parents=True, exist_ok=True)
@@ -44,34 +40,42 @@ class ModelTrainer:
         dtype: Optional[torch.dtype] = None,
         load_in_4bit: bool = False
     ) -> tuple[bool, str]:
-        """
-        Load base model with Unsloth.
-
-        Args:
-            model_id: Hugging Face model ID
-            max_seq_length: Maximum sequence length
-            dtype: Data type (None for auto)
-            load_in_4bit: Use 4-bit quantization (QLoRA)
-
-        Returns:
-            Tuple of (success, message)
-        """
+        """Load base model for MPS."""
         try:
-            from unsloth import FastLanguageModel
+            from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            self.model, self.tokenizer = FastLanguageModel.from_pretrained(
-                model_name=model_id,
-                max_seq_length=max_seq_length,
-                dtype=dtype,
-                load_in_4bit=load_in_4bit,
+            # Determine device
+            if torch.backends.mps.is_available():
+                device = "mps"
+                torch_dtype = torch.float16
+            elif torch.cuda.is_available():
+                device = "cuda"
+                torch_dtype = torch.float16
+            else:
+                device = "cpu"
+                torch_dtype = torch.float32
+
+            self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+
+            # Load model
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype=torch_dtype,
+                device_map=None,
             )
+            if device in ["mps", "cuda", "cpu"]:
+                self.model = self.model.to(device)
 
-            return True, f" Model '{model_id}' loaded successfully"
+            msg = f"Model loaded on {device}"
+            if device == "mps" and load_in_4bit:
+                msg += " (4-bit not available on MPS, using FP16)"
 
-        except ImportError:
-            return False, "L Unsloth not installed. Run: pip install unsloth"
+            return True, msg
+
         except Exception as e:
-            return False, f"L Failed to load model: {str(e)}"
+            return False, f"Failed to load model: {str(e)}"
 
     def prepare_model_for_training(
         self,
@@ -81,61 +85,41 @@ class ModelTrainer:
         target_modules: Optional[list] = None,
         use_gradient_checkpointing: bool = True
     ) -> tuple[bool, str]:
-        """
-        Add LoRA adapters to model.
-
-        Args:
-            lora_rank: LoRA rank
-            lora_alpha: LoRA alpha
-            lora_dropout: LoRA dropout
-            target_modules: Target modules for LoRA (None for auto)
-            use_gradient_checkpointing: Use gradient checkpointing
-
-        Returns:
-            Tuple of (success, message)
-        """
+        """Add LoRA adapters."""
         try:
-            from unsloth import FastLanguageModel
+            from peft import LoraConfig, get_peft_model
 
             if self.model is None:
-                return False, "L Model not loaded. Load model first."
+                return False, "Model not loaded"
 
-            self.model = FastLanguageModel.get_peft_model(
-                self.model,
+            config = LoraConfig(
                 r=lora_rank,
-                target_modules=target_modules or [
-                    "q_proj", "k_proj", "v_proj", "o_proj",
-                    "gate_proj", "up_proj", "down_proj",
-                ],
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
                 bias="none",
-                use_gradient_checkpointing=use_gradient_checkpointing,
-                random_state=3407,
-                use_rslora=False,
-                loftq_config=None,
+                task_type="CAUSAL_LM",
+                target_modules=target_modules or ["q_proj", "v_proj"],
             )
 
-            return True, " LoRA adapters added successfully"
+            self.model = get_peft_model(self.model, config)  # type: ignore
+
+            if use_gradient_checkpointing:
+                if hasattr(self.model, 'enable_input_require_grads'):
+                    self.model.enable_input_require_grads()
+                if hasattr(self.model, 'gradient_checkpointing_enable'):
+                    self.model.gradient_checkpointing_enable()
+
+            return True, "LoRA adapters added"
 
         except Exception as e:
-            return False, f"L Failed to prepare model: {str(e)}"
+            return False, f"Failed to prepare model: {str(e)}"
 
     def load_sft_dataset(self, sft_data_path: Path) -> tuple[bool, Optional[Dataset], str]:
-        """
-        Load SFT data from JSONL file.
-
-        Args:
-            sft_data_path: Path to JSONL file
-
-        Returns:
-            Tuple of (success, dataset, message)
-        """
+        """Load SFT data from JSONL."""
         try:
             if not sft_data_path.exists():
-                return False, None, f"L SFT data file not found: {sft_data_path}"
+                return False, None, f"File not found: {sft_data_path}"
 
-            # Load JSONL
             samples = []
             with open(sft_data_path, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -143,49 +127,29 @@ class ModelTrainer:
                         samples.append(json.loads(line))
 
             if not samples:
-                return False, None, "L No training samples found"
+                return False, None, "No training samples found"
 
-            # Format for training (instruction-output format)
-            formatted_samples = []
-            for sample in samples:
-                formatted_samples.append({
-                    "instruction": sample.get("instruction", ""),
-                    "output": sample.get("output", "")
-                })
+            formatted = [
+                {"instruction": s.get("instruction", ""), "output": s.get("output", "")}
+                for s in samples
+            ]
 
-            # Convert to Dataset
-            dataset = Dataset.from_list(formatted_samples)
-
-            return True, dataset, f" Loaded {len(samples)} training samples"
+            dataset = Dataset.from_list(formatted)
+            return True, dataset, f"Loaded {len(samples)} samples"
 
         except Exception as e:
-            return False, None, f"L Failed to load dataset: {str(e)}"
+            return False, None, f"Failed to load dataset: {str(e)}"
 
     def format_prompts(self, examples: Dict) -> Dict:
-        """
-        Format examples into training prompts.
-
-        Args:
-            examples: Batch of examples
-
-        Returns:
-            Formatted batch with 'text' field
-        """
-        instructions = examples["instruction"]
-        outputs = examples["output"]
-
+        """Format examples."""
         texts = []
-        for instruction, output in zip(instructions, outputs):
-            # Format: Alpaca-style prompt
-            text = f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
-
-### Instruction:
+        for instruction, output in zip(examples["instruction"], examples["output"]):
+            text = f"""### Instruction:
 {instruction}
 
 ### Response:
 {output}"""
             texts.append(text)
-
         return {"text": texts}
 
     def train(
@@ -200,7 +164,7 @@ class ModelTrainer:
         max_steps: int = -1,
         logging_steps: int = 1,
         save_steps: int = 100,
-        optim: str = "adamw_8bit",
+        optim: str = "adamw_torch",
         weight_decay: float = 0.01,
         lr_scheduler_type: str = "linear",
         seed: int = 3407,
@@ -208,42 +172,24 @@ class ModelTrainer:
         bf16: bool = False,
         progress_callback: Optional[Callable] = None
     ) -> tuple[bool, str]:
-        """
-        Train the model.
-
-        Args:
-            sft_data_path: Path to SFT data JSONL
-            output_dir: Output directory for checkpoints
-            learning_rate: Learning rate
-            num_train_epochs: Number of epochs
-            per_device_train_batch_size: Batch size per device
-            gradient_accumulation_steps: Gradient accumulation steps
-            warmup_steps: Warmup steps
-            max_steps: Maximum steps (-1 for no limit)
-            logging_steps: Logging frequency
-            save_steps: Checkpoint save frequency
-            optim: Optimizer (adamw_8bit recommended)
-            weight_decay: Weight decay
-            lr_scheduler_type: Learning rate scheduler
-            seed: Random seed
-            fp16: Use FP16
-            bf16: Use BF16
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Tuple of (success, message)
-        """
+        """Train the model."""
         try:
-            from transformers import TrainingArguments
-            from trl import SFTTrainer
+            from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
 
             if self.model is None or self.tokenizer is None:
-                return False, "L Model not loaded"
+                return False, "Model not loaded"
 
             # Load dataset
             success, dataset, msg = self.load_sft_dataset(sft_data_path)
-            if not success:
+            if not success or dataset is None:
                 return False, msg
+
+            # Tokenize dataset
+            def tokenize_function(examples):
+                formatted = self.format_prompts(examples)
+                return self.tokenizer(formatted["text"], truncation=True, max_length=512)  # type: ignore
+
+            tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
 
             # Training arguments
             training_args = TrainingArguments(
@@ -251,11 +197,10 @@ class ModelTrainer:
                 per_device_train_batch_size=per_device_train_batch_size,
                 gradient_accumulation_steps=gradient_accumulation_steps,
                 warmup_steps=warmup_steps,
-                max_steps=max_steps,
-                num_train_epochs=num_train_epochs,
+                max_steps=max_steps if max_steps > 0 else -1,
+                num_train_epochs=float(num_train_epochs) if max_steps <= 0 else 1.0,
                 learning_rate=learning_rate,
-                fp16=fp16,
-                bf16=bf16,
+                fp16=fp16 and not torch.backends.mps.is_available(),
                 logging_steps=logging_steps,
                 optim=optim,
                 weight_decay=weight_decay,
@@ -263,105 +208,174 @@ class ModelTrainer:
                 seed=seed,
                 save_strategy="steps",
                 save_steps=save_steps,
-                save_total_limit=3,  # Keep only last 3 checkpoints
-                report_to="none",  # No external reporting
+                save_total_limit=3,
+                report_to="none",
+                use_mps_device=torch.backends.mps.is_available(),
+            )
+
+            # Data collator
+            data_collator = DataCollatorForLanguageModeling(
+                tokenizer=self.tokenizer,
+                mlm=False,
             )
 
             # Initialize trainer
-            self.trainer = SFTTrainer(
+            self.trainer = Trainer(
                 model=self.model,
-                tokenizer=self.tokenizer,
-                train_dataset=dataset,
-                dataset_text_field="text",
-                max_seq_length=2048,
-                dataset_num_proc=2,
-                packing=False,
                 args=training_args,
-                formatting_func=lambda examples: self.format_prompts(examples)["text"],
+                train_dataset=tokenized_dataset,
+                data_collator=data_collator,
             )
 
-            # Start training
-            self.is_training = True
-            self.should_stop = False
-
-            # Log training start
-            log_path = self.logs_path / f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-            with open(log_path, 'w') as f:
-                f.write(f"Training started at {datetime.now()}\n")
-                f.write(f"Model: {self.model.config._name_or_path}\n")
-                f.write(f"Dataset: {len(dataset)} samples\n")
-                f.write(f"Epochs: {num_train_epochs}\n")
-                f.write(f"Learning rate: {learning_rate}\n")
-                f.write(f"Batch size: {per_device_train_batch_size}\n")
-                f.write("-" * 60 + "\n")
-
             # Train
+            self.is_training = True
             self.trainer.train()
-
             self.is_training = False
 
-            # Log training end
-            with open(log_path, 'a') as f:
-                f.write("-" * 60 + "\n")
-                f.write(f"Training completed at {datetime.now()}\n")
-
-            return True, " Training completed successfully"
+            return True, "Training completed"
 
         except Exception as e:
             self.is_training = False
-            return False, f"L Training failed: {str(e)}"
+            return False, f"Training failed: {str(e)}"
 
     def save_final_model(self, output_path: Path) -> tuple[bool, str]:
+        """Save final trained model."""
+        try:
+            if self.model is None or self.tokenizer is None:
+                return False, "No model to save"
+
+            output_path = Path(output_path)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            self.model.save_pretrained(str(output_path))
+            self.tokenizer.save_pretrained(str(output_path))
+
+            return True, f"Model saved to {output_path}"
+
+        except Exception as e:
+            return False, f"Failed to save model: {str(e)}"
+
+    def stop_training(self):
+        """Stop training gracefully."""
+        self.should_stop = True
+
+    def train_cpt(
+        self,
+        cpt_data_path: Path,
+        output_dir: Path,
+        learning_rate: float = 3e-4,
+        num_train_epochs: int = 3,
+        per_device_train_batch_size: int = 4,
+        max_seq_length: int = 2048,
+        gradient_checkpointing: bool = True,
+        progress_callback: Optional[Callable] = None
+    ) -> tuple[bool, str]:
         """
-        Save final trained model.
+        Train model with CPT (Continued Pre-Training) on raw text data.
 
         Args:
-            output_path: Output directory
+            cpt_data_path: Path to text file with raw chunks
+            output_dir: Directory to save CPT model
+            learning_rate: Learning rate (higher for CPT than SFT)
+            num_train_epochs: Number of epochs
+            per_device_train_batch_size: Batch size
+            max_seq_length: Maximum sequence length
+            gradient_checkpointing: Use gradient checkpointing
+            progress_callback: Optional callback for progress
 
         Returns:
             Tuple of (success, message)
         """
         try:
+            from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
+            from datasets import Dataset
+
             if self.model is None or self.tokenizer is None:
-                return False, "L No model to save"
+                return False, "Model not loaded"
 
-            output_path = Path(output_path)
-            output_path.mkdir(parents=True, exist_ok=True)
+            # Load raw text data
+            if not cpt_data_path.exists():
+                return False, f"CPT data file not found: {cpt_data_path}"
 
-            # Save model and tokenizer
-            self.model.save_pretrained(str(output_path))
-            self.tokenizer.save_pretrained(str(output_path))
+            with open(cpt_data_path, 'r', encoding='utf-8') as f:
+                text_chunks = [line.strip() for line in f if line.strip()]
 
-            # Save training info
-            info = {
-                "saved_at": datetime.now().isoformat(),
-                "model_type": "lora_adapter",
-                "base_model": self.model.config._name_or_path if hasattr(self.model.config, '_name_or_path') else "unknown"
-            }
+            if not text_chunks:
+                return False, "No text chunks found in CPT data file"
 
-            with open(output_path / "training_info.json", 'w') as f:
-                json.dump(info, f, indent=2)
+            # Create dataset from raw text
+            dataset = Dataset.from_dict({"text": text_chunks})
 
-            return True, f" Model saved to {output_path}"
+            # Tokenize dataset for language modeling
+            def tokenize_function(examples):
+                return self.tokenizer(
+                    examples["text"],
+                    truncation=True,
+                    max_length=max_seq_length,
+                    padding=False,
+                    return_special_tokens_mask=True
+                )
+
+            tokenized_dataset = dataset.map(
+                tokenize_function,
+                batched=True,
+                remove_columns=dataset.column_names,
+                desc="Tokenizing CPT data"
+            )
+
+            # Training arguments optimized for CPT
+            training_args = TrainingArguments(
+                output_dir=str(output_dir),
+                per_device_train_batch_size=per_device_train_batch_size,
+                num_train_epochs=num_train_epochs,
+                learning_rate=learning_rate,
+                warmup_steps=100,
+                logging_steps=10,
+                save_strategy="epoch",
+                save_total_limit=2,
+                fp16=torch.cuda.is_available(),
+                use_mps_device=torch.backends.mps.is_available(),
+                gradient_checkpointing=gradient_checkpointing,
+                report_to="none",
+                seed=42,
+                dataloader_num_workers=0,
+            )
+
+            # Data collator for language modeling
+            data_collator = DataCollatorForLanguageModeling(
+                tokenizer=self.tokenizer,
+                mlm=False,  # Causal LM, not masked LM
+            )
+
+            # Initialize trainer
+            self.trainer = Trainer(
+                model=self.model,
+                args=training_args,
+                train_dataset=tokenized_dataset,
+                data_collator=data_collator,
+            )
+
+            # Train
+            self.is_training = True
+            self.trainer.train()
+            self.is_training = False
+
+            # Save final model
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            self.model.save_pretrained(str(output_dir))
+            self.tokenizer.save_pretrained(str(output_dir))
+
+            return True, f"CPT training completed. Model saved to {output_dir}"
 
         except Exception as e:
-            return False, f"L Failed to save model: {str(e)}"
-
-    def stop_training(self):
-        """Stop training gracefully."""
-        self.should_stop = True
-        if self.trainer is not None:
-            self.trainer.args.max_steps = 0  # Trigger early stopping
+            self.is_training = False
+            return False, f"CPT training failed: {str(e)}"
 
     def get_checkpoint_info(self) -> list[Dict]:
-        """
-        Get information about saved checkpoints.
-
-        Returns:
-            List of checkpoint info dictionaries
-        """
+        """Get checkpoint information."""
         checkpoints = []
-
         if not self.checkpoints_path.exists():
             return checkpoints
 
@@ -374,17 +388,4 @@ class ModelTrainer:
                     "path": str(checkpoint_dir),
                     "modified": datetime.fromtimestamp(checkpoint_dir.stat().st_mtime).isoformat()
                 })
-
         return checkpoints
-
-
-if __name__ == "__main__":
-    # Test trainer
-    from pathlib import Path
-
-    project_path = Path("projects/test-project")
-    trainer = ModelTrainer(project_path)
-
-    print("Trainer initialized")
-    print(f"Checkpoints path: {trainer.checkpoints_path}")
-    print(f"Final model path: {trainer.final_model_path}")
